@@ -17,3 +17,12 @@ python app.py
 ```
 
 Then open `http://localhost:5000` in your browser.
+
+## GitHub Pages
+
+A static version of the application is available under the `docs/` directory.
+It performs the API queries in the browser using JavaScript. The included
+GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically deploys
+this directory to GitHub Pages whenever changes are pushed to the `main`
+branch. Enable GitHub Pages in the repository settings and select **GitHub
+Actions** as the source.
