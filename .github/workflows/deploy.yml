@@ -27,7 +27,7 @@ jobs:
           mkdir -p public
           cp -r docs/* public/
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
+        uses: actions/upload-pages-artifact@v3
         with:
           path: public
       - name: Deploy to GitHub Pages
