@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+    <title>Product & Ingredient Aggregator</title>
+    <style>
+        textarea { width: 100%; height: 300px; }
+    </style>
+</head>
+<body>
+    <h1>Product & Ingredient Aggregator</h1>
+    <form method="post">
+        <label>Product Name:</label>
+        <input type="text" name="product_name">
+        <br>
+        <label>Barcode:</label>
+        <input type="text" name="barcode">
+        <br>
+        <button type="submit">Search</button>
+    </form>
+    {% if data %}
+        <h2>Results</h2>
+        <pre>{{ data | tojson(indent=2) }}</pre>
+        <a href="{{ url_for('download_json') }}">Download JSON</a>
+    {% endif %}
+</body>
+</html>
