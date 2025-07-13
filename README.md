@@ -1,9 +1,19 @@
 # KairoScrapper
 
-This repository now includes a simple **Hello World** example.
+This repository contains a simple Flask web application that queries public APIs to gather product and ingredient data. Users can enter a product name or barcode and receive aggregated results in a JSON structure. The data can be viewed on the page and downloaded as a file.
 
-Run it with:
+## Running the App
+
+Install dependencies:
 
 ```bash
-python hello.py
+pip install -r requirements.txt
 ```
+
+Start the application:
+
+```bash
+python app.py
+```
+
+Then open `http://localhost:5000` in your browser.
