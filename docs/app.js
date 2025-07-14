@@ -90,35 +90,73 @@ function buildJson(productData, ingredientsDetails) {
 
 async function handleForm(event) {
     event.preventDefault();
-    const form = event.target;
-    const name = form.product_name.value.trim();
-    const barcode = form.barcode.value.trim();
-    let product = {};
-    if (barcode) {
-        product = await queryOpenFoodFactsByBarcode(barcode);
-    } else if (name) {
-        const searchResult = await searchOpenFoodFacts(name);
-        if (searchResult && searchResult.id) {
-            product = await queryOpenFoodFactsByBarcode(searchResult.id);
+    
+    // Show loading state
+    const resultSection = document.getElementById('result-section');
+    const loading = document.getElementById('loading');
+    const error = document.getElementById('error');
+    const results = document.getElementById('results');
+    const download = document.getElementById('download');
+    
+    resultSection.style.display = 'block';
+    loading.style.display = 'block';
+    error.style.display = 'none';
+    results.textContent = '';
+    download.style.display = 'none';
+    
+    try {
+        const form = event.target;
+        const name = form.product_name.value.trim();
+        const barcode = form.barcode.value.trim();
+        
+        if (!name && !barcode) {
+            throw new Error('Please enter either a product name or barcode');
         }
-    }
-    if (product && Object.keys(product).length > 0) {
+        
+        let product = {};
+        
+        if (barcode) {
+            product = await queryOpenFoodFactsByBarcode(barcode);
+        } else if (name) {
+            const searchResult = await searchOpenFoodFacts(name);
+            if (searchResult && searchResult.id) {
+                product = await queryOpenFoodFactsByBarcode(searchResult.id);
+            }
+        }
+        
+        if (!product || Object.keys(product).length === 0) {
+            throw new Error('No product found. Please try a different search term or barcode.');
+        }
+        
         const ingredients = [];
         for (const ing of product.ingredients || []) {
             const ingName = ing.text;
             const detail = { name: ingName };
-            const pubchem = await queryPubChem(ingName);
-            if (Object.keys(pubchem).length) detail.pubchem = pubchem;
+            try {
+                const pubchem = await queryPubChem(ingName);
+                if (Object.keys(pubchem).length) detail.pubchem = pubchem;
+            } catch (e) {
+                console.warn(`Could not fetch PubChem data for ${ingName}:`, e);
+            }
             ingredients.push(detail);
         }
+        
         const data = buildJson(product, ingredients);
-        document.getElementById('results').textContent = JSON.stringify(data, null, 2);
+        loading.style.display = 'none';
+        results.textContent = JSON.stringify(data, null, 2);
+        
+        // Create download link
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        const dl = document.getElementById('download');
-        dl.href = url;
-        dl.style.display = 'inline';
-        document.getElementById('result-section').style.display = 'block';
+        download.href = url;
+        download.download = `product_${product.id || 'data'}_${new Date().toISOString().split('T')[0]}.json`;
+        download.style.display = 'inline';
+        
+    } catch (err) {
+        loading.style.display = 'none';
+        error.style.display = 'block';
+        error.textContent = `Error: ${err.message}`;
+        console.error('Search error:', err);
     }
 }
 
