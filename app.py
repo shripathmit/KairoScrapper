@@ -12,9 +12,14 @@ OPENFOODFACTS_SEARCH_API = "https://world.openfoodfacts.org/cgi/search.pl"
 PUBCHEM_NAME_API = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{name}/JSON"
 
 
+HEADERS = {
+    "User-Agent": "KairoScrapper/1.0 (contact@example.com)"
+}
+
+
 def query_openfoodfacts_by_barcode(barcode: str):
     url = OPENFOODFACTS_PRODUCT_API.format(barcode=barcode)
-    r = requests.get(url)
+    r = requests.get(url, headers=HEADERS)
     if r.status_code == 200:
         return r.json().get("product", {})
     return {}
@@ -27,7 +32,7 @@ def search_openfoodfacts(name: str):
         "action": "process",
         "json": 1
     }
-    r = requests.get(OPENFOODFACTS_SEARCH_API, params=params)
+    r = requests.get(OPENFOODFACTS_SEARCH_API, params=params, headers=HEADERS)
     if r.status_code == 200:
         data = r.json()
         if data.get("products"):
@@ -37,7 +42,7 @@ def search_openfoodfacts(name: str):
 
 def query_pubchem(ingredient: str):
     url = PUBCHEM_NAME_API.format(name=ingredient)
-    r = requests.get(url)
+    r = requests.get(url, headers=HEADERS)
     if r.status_code == 200:
         data = r.json()
         try:
