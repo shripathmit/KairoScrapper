@@ -143,7 +143,7 @@ async function handleForm(event) {
         
         const data = buildJson(product, ingredients);
         loading.style.display = 'none';
-        results.textContent = JSON.stringify(data, null, 2);
+        results.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre><div>Ingredients: ${renderIngredientsClickable(product, ingredients)}</div>`;
         
         // Create download link
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -160,4 +160,107 @@ async function handleForm(event) {
     }
 }
 
-document.getElementById('search-form').addEventListener('submit', handleForm);
+// --- Ingredient Details Modal ---
+function showIngredientModal(ingredientName) {
+    const modal = document.getElementById('ingredient-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalContent = document.getElementById('modal-content');
+    modalTitle.textContent = `Ingredient Details: ${ingredientName}`;
+    modalContent.innerHTML = 'Loading...';
+    modal.style.display = 'flex';
+    queryPubChem(ingredientName).then(data => {
+        if (data.cid) {
+            modalContent.innerHTML = `
+                <p><strong>PubChem CID:</strong> ${data.cid}</p>
+                <p><a href="https://pubchem.ncbi.nlm.nih.gov/compound/${data.cid}" target="_blank">View on PubChem</a></p>
+            `;
+        } else {
+            modalContent.innerHTML = '<p>No PubChem data found.</p>';
+        }
+    }).catch(() => {
+        modalContent.innerHTML = '<p>Error fetching PubChem data.</p>';
+    });
+}
+document.getElementById('close-modal').onclick = function() {
+    document.getElementById('ingredient-modal').style.display = 'none';
+};
+window.onclick = function(event) {
+    const modal = document.getElementById('ingredient-modal');
+    if (event.target === modal) modal.style.display = 'none';
+};
+
+// --- Batch Search ---
+async function handleBatchForm(event) {
+    event.preventDefault();
+    const batchResults = document.getElementById('batch-results');
+    batchResults.innerHTML = '';
+    batchResults.style.display = 'block';
+    let entries = [];
+    const textarea = document.getElementById('batch-input').value.trim();
+    if (textarea) {
+        entries = textarea.split(/\r?\n/).map(e => e.trim()).filter(Boolean);
+    }
+    const fileInput = document.getElementById('batch-file');
+    if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        const text = await file.text();
+        entries = entries.concat(text.split(/\r?\n|,/).map(e => e.trim()).filter(Boolean));
+    }
+    if (entries.length === 0) {
+        batchResults.innerHTML = '<div class="error">Please enter or upload at least one barcode or product name.</div>';
+        return;
+    }
+    batchResults.innerHTML = '<div class="loading">Processing batch search...</div>';
+    const allResults = [];
+    for (const entry of entries) {
+        let product = {};
+        if (/^\d+$/.test(entry)) {
+            product = await queryOpenFoodFactsByBarcode(entry);
+        } else {
+            const searchResult = await searchOpenFoodFacts(entry);
+            if (searchResult && searchResult.id) {
+                product = await queryOpenFoodFactsByBarcode(searchResult.id);
+            }
+        }
+        if (product && Object.keys(product).length > 0) {
+            const ingredients = [];
+            for (const ing of product.ingredients || []) {
+                const ingName = ing.text;
+                const detail = { name: ingName };
+                try {
+                    const pubchem = await queryPubChem(ingName);
+                    if (Object.keys(pubchem).length) detail.pubchem = pubchem;
+                } catch (e) {}
+                ingredients.push(detail);
+            }
+            const data = buildJson(product, ingredients);
+            allResults.push({ entry, data });
+        } else {
+            allResults.push({ entry, error: 'No product found.' });
+        }
+    }
+    // Render results
+    batchResults.innerHTML = allResults.map(r => {
+        if (r.error) {
+            return `<div><strong>${r.entry}:</strong> <span class="error">${r.error}</span></div>`;
+        } else {
+            // Render clickable ingredient names
+            const ingredientsHtml = r.data.ingredients.map(ing =>
+                `<span class="ingredient-link" style="color:#007cba;cursor:pointer;" onclick="showIngredientModal('${ing.name.replace(/'/g, "\\'")}')">${ing.name}</span>`
+            ).join(', ');
+            return `<div style="margin-bottom:20px;"><strong>${r.entry}:</strong><br>
+                <pre style="background:#f8f8f8; padding:10px; border-radius:5px;">${JSON.stringify(r.data, null, 2)}</pre>
+                <div>Ingredients: ${ingredientsHtml}</div>
+            </div>`;
+        }
+    }).join('');
+}
+document.getElementById('batch-form').addEventListener('submit', handleBatchForm);
+
+// --- Enhance single search ingredient rendering ---
+function renderIngredientsClickable(product, ingredients) {
+    if (!product || !ingredients || ingredients.length === 0) return '';
+    return ingredients.map(ing =>
+        `<span class="ingredient-link" style="color:#007cba;cursor:pointer;" onclick="showIngredientModal('${ing.name.replace(/'/g, "\\'")}')">${ing.name}</span>`
+    ).join(', ');
+}
