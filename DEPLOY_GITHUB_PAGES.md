@@ -17,8 +17,9 @@
    - Go to your repository on GitHub.
    - Click on `Settings` > `Pages` (or `Code and automation` > `Pages`).
    - Under `Source`, select `Deploy from a branch`.
-   - Select the `main` branch and set the folder to `/docs`.
+   - Select the `main` branch and set the folder to `/ (root)`.
    - Click `Save`.
+   - **Note:** If you have a `docs/` folder, try `/docs` first. If that fails, use `/ (root)` instead.
 
 3. **Access your site**
    - After a few minutes, your site will be live at `https://YOUR_USERNAME.github.io/KairoScrapper/`.
