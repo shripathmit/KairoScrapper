@@ -32,7 +32,7 @@
             font-weight: bold; 
             color: #555;
         }
-        input[type="text"] { 
+        input[type="text"], input[type="file"], textarea { 
             width: 100%; 
             padding: 10px; 
             border: 2px solid #ddd; 
@@ -59,7 +59,7 @@
             background: #f0f8ff; 
             border-radius: 5px; 
         }
-        #results { 
+        #results, #batch-results { 
             background: #fff; 
             padding: 15px; 
             border-radius: 5px; 
@@ -78,6 +78,36 @@
             padding: 10px; 
             border-radius: 5px; 
         }
+        /* Modal styles */
+        #ingredient-modal { 
+            display:none; 
+            position:fixed; 
+            top:0; 
+            left:0; 
+            width:100vw; 
+            height:100vh; 
+            background:rgba(0,0,0,0.5); 
+            z-index:1000; 
+            align-items:center; 
+            justify-content:center;
+        }
+        #ingredient-modal > div { 
+            background:#fff; 
+            padding:30px; 
+            border-radius:10px; 
+            max-width:500px; 
+            margin:auto; 
+            position:relative;
+        }
+        #close-modal { 
+            position:absolute; 
+            top:10px; 
+            right:10px; 
+            font-size:20px; 
+            background:none; 
+            border:none; 
+            cursor:pointer;
+        }
     </style>
 </head>
 <body>
@@ -94,7 +124,19 @@
             </div>
             <button type="submit">🔎 Search Product</button>
         </form>
-        
+        <hr>
+        <form id="batch-form">
+            <div class="form-group">
+                <label for="batch-input">Batch Search (one barcode or product name per line):</label>
+                <textarea id="batch-input" name="batch-input" rows="4" placeholder="Enter barcodes or product names, one per line..."></textarea>
+            </div>
+            <div class="form-group">
+                <label for="batch-file">Or upload a text/CSV file:</label>
+                <input type="file" id="batch-file" accept=".txt,.csv">
+            </div>
+            <button type="submit">🔎 Batch Search</button>
+        </form>
+        <div id="batch-results" style="display:none; margin-top:30px;"></div>
         <div id="result-section" style="display:none;">
             <h2>📊 Results</h2>
             <div id="loading" class="loading" style="display:none;">
@@ -103,6 +145,14 @@
             <div id="error" class="error" style="display:none;"></div>
             <pre id="results"></pre>
             <a id="download" href="#" style="display:none;">📥 Download JSON</a>
+        </div>
+        <!-- Ingredient Details Modal -->
+        <div id="ingredient-modal">
+            <div>
+                <button id="close-modal">&times;</button>
+                <h3 id="modal-title">Ingredient Details</h3>
+                <div id="modal-content">Loading...</div>
+            </div>
         </div>
     </div>
     <script src="app.js"></script>
