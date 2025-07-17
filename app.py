@@ -19,9 +19,13 @@ HEADERS = {
 
 def query_openfoodfacts_by_barcode(barcode: str):
     url = OPENFOODFACTS_PRODUCT_API.format(barcode=barcode)
-    r = requests.get(url, headers=HEADERS)
-    if r.status_code == 200:
-        return r.json().get("product", {})
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=5)
+        if r.status_code == 200:
+            return r.json().get("product", {})
+    except requests.RequestException:
+        # Network error or timeout
+        pass
     return {}
 
 
@@ -32,24 +36,30 @@ def search_openfoodfacts(name: str):
         "action": "process",
         "json": 1
     }
-    r = requests.get(OPENFOODFACTS_SEARCH_API, params=params, headers=HEADERS)
-    if r.status_code == 200:
-        data = r.json()
-        if data.get("products"):
-            return data["products"][0]  # return first product
+    try:
+        r = requests.get(OPENFOODFACTS_SEARCH_API, params=params, headers=HEADERS, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("products"):
+                return data["products"][0]  # return first product
+    except requests.RequestException:
+        pass
     return {}
 
 
 def query_pubchem(ingredient: str):
     url = PUBCHEM_NAME_API.format(name=ingredient)
-    r = requests.get(url, headers=HEADERS)
-    if r.status_code == 200:
-        data = r.json()
-        try:
-            cid = data["PC_Compounds"][0]["id"]["id"].get("cid")
-            return {"cid": cid, "source": url}
-        except (KeyError, IndexError):
-            pass
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            try:
+                cid = data["PC_Compounds"][0]["id"]["id"].get("cid")
+                return {"cid": cid, "source": url}
+            except (KeyError, IndexError):
+                pass
+    except requests.RequestException:
+        pass
     return {}
 
 
@@ -106,6 +116,7 @@ def build_json(product_data, ingredients_details):
 @app.route('/', methods=['GET', 'POST'])
 def index():
     data = None
+    error = None
     if request.method == 'POST':
         name = request.form.get('product_name', '').strip()
         barcode = request.form.get('barcode', '').strip()
@@ -128,7 +139,9 @@ def index():
                 ingredients.append(detail)
             data = build_json(product, ingredients)
             session['data'] = data
-    return render_template('index.html', data=data)
+        else:
+            error = "No product found or unable to fetch data. Check your internet connection."
+    return render_template('index.html', data=data, error=error)
 
 
 @app.route('/download')
