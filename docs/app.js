@@ -98,11 +98,11 @@ async function handleForm(event) {
     const results = document.getElementById('results');
     const download = document.getElementById('download');
     
-    resultSection.style.display = 'block';
-    loading.style.display = 'block';
-    error.style.display = 'none';
+    resultSection.classList.remove('hidden');
+    loading.classList.remove('hidden');
+    error.classList.add('hidden');
     results.textContent = '';
-    download.style.display = 'none';
+    download.classList.add('hidden');
     
     try {
         const form = event.target;
@@ -142,23 +142,28 @@ async function handleForm(event) {
         }
         
         const data = buildJson(product, ingredients);
-        loading.style.display = 'none';
-        results.textContent = JSON.stringify(data, null, 2);
+        loading.classList.add('hidden');
+        
+        // Display results with clickable ingredients
+        const ingredientsHtml = renderIngredientsClickable(product, ingredients);
+        results.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre><div>Ingredients: ${ingredientsHtml}</div>`;
         
         // Create download link
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         download.href = url;
         download.download = `product_${product.id || 'data'}_${new Date().toISOString().split('T')[0]}.json`;
-        download.style.display = 'inline';
+        download.classList.remove('hidden');
         
     } catch (err) {
-        loading.style.display = 'none';
-        error.style.display = 'block';
+        loading.classList.add('hidden');
+        error.classList.remove('hidden');
         error.textContent = `Error: ${err.message}`;
         console.error('Search error:', err);
     }
 }
+
+document.getElementById('search-form').addEventListener('submit', handleForm);
 
 // --- Ingredient Details Modal ---
 function showIngredientModal(ingredientName) {
@@ -168,6 +173,19 @@ function showIngredientModal(ingredientName) {
     modalTitle.textContent = `Ingredient Details: ${ingredientName}`;
     modalContent.innerHTML = 'Loading...';
     modal.style.display = 'flex';
+    queryPubChem(ingredientName).then(data => {
+        if (data.cid) {
+            modalContent.innerHTML = `
+                <p><strong>PubChem CID:</strong> ${data.cid}</p>
+                <p><a href="https://pubchem.ncbi.nlm.nih.gov/compound/${data.cid}" target="_blank">View on PubChem</a></p>
+            `;
+        } else {
+            modalContent.innerHTML = '<p>No PubChem data found.</p>';
+        }
+    }).catch(() => {
+        modalContent.innerHTML = '<p>Error fetching PubChem data.</p>';
+    });
+}
     queryPubChem(ingredientName).then(data => {
         if (data.cid) {
             modalContent.innerHTML = `
@@ -194,7 +212,7 @@ async function handleBatchForm(event) {
     event.preventDefault();
     const batchResults = document.getElementById('batch-results');
     batchResults.innerHTML = '';
-    batchResults.style.display = 'block';
+    batchResults.classList.remove('hidden');
     let entries = [];
     const textarea = document.getElementById('batch-input').value.trim();
     if (textarea) {
@@ -264,6 +282,3 @@ function renderIngredientsClickable(product, ingredients) {
         `<span class="ingredient-link" style="color:#007cba;cursor:pointer;" onclick="showIngredientModal('${ing.name.replace(/'/g, "\\'")}')">${ing.name}</span>`
     ).join(', ');
 }
-
-// In handleForm, after results.textContent = ...
-        results.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre><div>Ingredients: ${renderIngredientsClickable(product, ingredients)}</div>`;

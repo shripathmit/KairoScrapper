@@ -78,6 +78,8 @@
             padding: 10px; 
             border-radius: 5px; 
         }
+        .hidden { display: none; }
+        .margin-top { margin-top: 30px; }
         /* Modal styles */
         #ingredient-modal { 
             display:none; 
@@ -136,18 +138,18 @@
             </div>
             <button type="submit">🔎 Batch Search</button>
         </form>
-        <div id="batch-results" style="display:none; margin-top:30px;"></div>
-        <div id="result-section" style="display:none;">
+        <div id="batch-results" class="hidden margin-top"></div>
+        <div id="result-section" class="hidden">
             <h2>📊 Results</h2>
-            <div id="loading" class="loading" style="display:none;">
+            <div id="loading" class="loading hidden">
                 <p>🔄 Searching for product information...</p>
             </div>
-            <div id="error" class="error" style="display:none;"></div>
+            <div id="error" class="error hidden"></div>
             <pre id="results"></pre>
-            <a id="download" href="#" style="display:none;">📥 Download JSON</a>
+            <a id="download" href="#" class="hidden">📥 Download JSON</a>
         </div>
         <!-- Ingredient Details Modal -->
-        <div id="ingredient-modal">
+        <div id="ingredient-modal" class="hidden">
             <div>
                 <button id="close-modal">&times;</button>
                 <h3 id="modal-title">Ingredient Details</h3>
