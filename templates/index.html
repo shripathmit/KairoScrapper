@@ -17,6 +17,9 @@
         <br>
         <button type="submit">Search</button>
     </form>
+    {% if error %}
+        <p style="color:red;">{{ error }}</p>
+    {% endif %}
     {% if data %}
         <h2>Results</h2>
         <pre>{{ data | tojson(indent=2) }}</pre>
