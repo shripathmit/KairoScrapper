@@ -18,6 +18,19 @@ python app.py
 
 Then open `http://localhost:5000` in your browser.
 
+## Ingredient Scraper Task
+
+The repository also includes a simple offline ingredient scraper located in
+`ingredient_scraper.py`. It reads ingredient details from `data/ingredients.csv`
+and outputs a JSON structure with `products`, `ingredients` and
+`health_effects` sections.
+
+Run it with:
+
+```bash
+python ingredient_scraper.py
+```
+
 ## GitHub Pages
 
 A static version of the application is available under the `docs/` directory.

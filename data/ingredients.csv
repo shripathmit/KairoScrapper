@@ -1,0 +1,2 @@
+name,scientific_name,cas_number,category,safety_rating,description,sources,health_effects
+Sodium Hypochlorite,Sodium hypochlorite,7681-52-9,Disinfectant,moderate_concern,Common disinfectant and bleaching agent,"EPA Database|PubChem","effect_type=negative;condition=Skin Irritation;severity=medium;description=Can cause skin and eye irritation"
