@@ -113,6 +113,119 @@ function extractIngredients(product) {
     return ingredients.slice(0, 20); // Limit to first 20 ingredients
 }
 
+// === Additional API Sources ===
+
+// USDA FoodData Central API
+async function searchUSDAFoodData(name) {
+    try {
+        const apiKey = "DEMO_KEY"; // Replace with actual API key for production
+        const params = new URLSearchParams({
+            query: name,
+            pageSize: 10,
+            api_key: apiKey
+        });
+        
+        const resp = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?${params.toString()}`);
+        if (resp.ok) {
+            const data = await resp.json();
+            console.log('USDA FoodData results:', data.foods?.length || 0);
+            return data.foods || [];
+        }
+    } catch (e) {
+        console.warn('USDA FoodData API error:', e);
+    }
+    return [];
+}
+
+// Edamam Food Database API
+async function searchEdamamFood(name) {
+    try {
+        // Note: Requires API key - using demo endpoint
+        const params = new URLSearchParams({
+            ingr: name,
+            app_id: "demo", // Replace with actual app_id
+            app_key: "demo" // Replace with actual app_key
+        });
+        
+        // Using nutrition analysis as alternative since food database requires paid plan
+        const resp = await fetch(`https://api.edamam.com/api/nutrition-data?${params.toString()}`);
+        if (resp.ok) {
+            const data = await resp.json();
+            console.log('Edamam results:', data);
+            return data.ingredients || [];
+        }
+    } catch (e) {
+        console.warn('Edamam API error:', e);
+    }
+    return [];
+}
+
+// Spoonacular Food API
+async function searchSpoonacularFood(name) {
+    try {
+        const apiKey = "demo"; // Replace with actual API key
+        const params = new URLSearchParams({
+            query: name,
+            number: 10,
+            apiKey: apiKey
+        });
+        
+        const resp = await fetch(`https://api.spoonacular.com/food/products/search?${params.toString()}`);
+        if (resp.ok) {
+            const data = await resp.json();
+            console.log('Spoonacular results:', data.products?.length || 0);
+            return data.products || [];
+        }
+    } catch (e) {
+        console.warn('Spoonacular API error:', e);
+    }
+    return [];
+}
+
+// Walmart Open API (for product search)
+async function searchWalmartProducts(name) {
+    try {
+        // Note: This is a public endpoint - no key required but limited
+        const resp = await fetch(`https://api.walmartlabs.com/v1/search?query=${encodeURIComponent(name)}&format=json`);
+        if (resp.ok) {
+            const data = await resp.json();
+            console.log('Walmart results:', data.items?.length || 0);
+            return data.items || [];
+        }
+    } catch (e) {
+        console.warn('Walmart API error:', e);
+    }
+    return [];
+}
+
+// Generic UPC Database API
+async function searchUPCDatabase(name) {
+    try {
+        const resp = await fetch(`https://api.upcitemdb.com/prod/trial/search?s=${encodeURIComponent(name)}`);
+        if (resp.ok) {
+            const data = await resp.json();
+            console.log('UPC Database results:', data.items?.length || 0);
+            return data.items || [];
+        }
+    } catch (e) {
+        console.warn('UPC Database API error:', e);
+    }
+    return [];
+}
+
+// World Food Safety API (simulate - would need real endpoint)
+async function searchFoodSafetyDB(name) {
+    try {
+        // This would be a real food safety database API
+        console.log('Food Safety DB search for:', name);
+        // Placeholder - would return food safety and ingredient data
+        return [];
+    } catch (e) {
+        console.warn('Food Safety DB API error:', e);
+    }
+    return [];
+}
+
 async function queryPubChem(ingredient) {
     const resp = await fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(ingredient)}/JSON`);
     if (resp.ok) {
@@ -153,16 +266,17 @@ function buildJson(products, ingredientsMap) {
             description: productData.generic_name_en || productData.generic_name || '',
             status: 'active',
             is_dummy: false,
-            sources: ['OpenFoodFacts'],
+            sources: [productData.source || 'OpenFoodFacts'],
             regulatory_claims: productData.labels_en || productData.labels || '',
-            active_ingredients: ingredientsDetails.map(ing => ({ name: ing.name, function: '', sources: ['OpenFoodFacts'] })),
+            active_ingredients: ingredientsDetails.map(ing => ({ name: ing.name, function: '', sources: [productData.source || 'OpenFoodFacts'] })),
             inactive_ingredients: [],
             // Add debugging info
             debug_info: {
                 raw_ingredients_text: productData.ingredients_text_en || productData.ingredients_text || '',
                 raw_ingredients_tags: productData.ingredients_tags || [],
                 nutrition_grades: productData.nutrition_grades || '',
-                nova_group: productData.nova_group || ''
+                nova_group: productData.nova_group || '',
+                api_source: productData.source || 'OpenFoodFacts'
             }
         };
 
@@ -229,25 +343,26 @@ async function handleForm(event) {
                 products = [product];
             }
         } else if (name) {
-            // Multiple product search
-            const searchResults = await searchOpenFoodFacts(name, 10);
-            console.log(`Search for "${name}" returned ${searchResults.length} products`);
+            // Multi-API comprehensive search
+            const searchResults = await searchAllAPIs(name);
+            console.log(`Comprehensive search for "${name}" returned ${searchResults.length} products from multiple sources`);
             
-            // Get full details for each product
+            // Get full details for OpenFoodFacts products, others are already normalized
             for (const searchResult of searchResults) {
-                if (searchResult.code) {
+                if (searchResult.source === 'OpenFoodFacts' && searchResult.code && !searchResult.code.startsWith('USDA-') && !searchResult.code.startsWith('SPOON-')) {
                     try {
                         const fullProduct = await queryOpenFoodFactsByBarcode(searchResult.code);
                         if (fullProduct && Object.keys(fullProduct).length > 0) {
-                            products.push(fullProduct);
+                            products.push({ ...fullProduct, source: 'OpenFoodFacts' });
+                        } else {
+                            products.push(searchResult);
                         }
                     } catch (e) {
-                        console.warn(`Failed to get details for product ${searchResult.code}:`, e);
-                        // Use search result as fallback
+                        console.warn(`Failed to get OpenFoodFacts details for product ${searchResult.code}:`, e);
                         products.push(searchResult);
                     }
                 } else {
-                    // Use search result as is
+                    // Use normalized data from other APIs
                     products.push(searchResult);
                 }
             }
@@ -293,6 +408,7 @@ async function handleForm(event) {
             const ingredients = ingredientsMap[i] || [];
             const productName = product.product_name_en || product.product_name || 'Unknown Product';
             const brand = product.brands || 'Unknown Brand';
+            const source = product.source || 'OpenFoodFacts';
             
             const ingredientsHtml = renderIngredientsClickable(product, ingredients);
             
@@ -301,6 +417,7 @@ async function handleForm(event) {
                     <h4 style="margin: 0 0 10px 0; color: #333;">${productName}</h4>
                     <p style="margin: 5px 0; color: #666;"><strong>Brand:</strong> ${brand}</p>
                     <p style="margin: 5px 0; color: #666;"><strong>Barcode:</strong> ${product.code || 'N/A'}</p>
+                    <p style="margin: 5px 0; color: #007cba;"><strong>Source:</strong> ${source}</p>
                     <p style="margin: 10px 0 5px 0; color: #333;"><strong>Ingredients:</strong></p>
                     <div style="margin-left: 10px;">${ingredientsHtml || 'No ingredients found'}</div>
                 </div>
@@ -432,4 +549,116 @@ function renderIngredientsClickable(product, ingredients) {
     return ingredients.map(ing =>
         `<span class="ingredient-link" style="color:#007cba;cursor:pointer;" onclick="showIngredientModal('${ing.name.replace(/'/g, "\\'")}')">${ing.name}</span>`
     ).join(', ');
+}
+
+// === Data Normalization Functions ===
+
+function normalizeUSDAProduct(usdaProduct) {
+    return {
+        code: usdaProduct.fdcId?.toString() || 'USDA-' + Date.now(),
+        product_name_en: usdaProduct.description || usdaProduct.lowercaseDescription || 'Unknown USDA Product',
+        brands: usdaProduct.brandOwner || usdaProduct.brandName || 'USDA Database',
+        categories_en: usdaProduct.foodCategory || 'Food',
+        ingredients_text_en: usdaProduct.ingredients || '',
+        ingredients_tags: usdaProduct.foodNutrients?.map(n => n.nutrientName) || [],
+        source: 'USDA FoodData Central',
+        nutrition_grades: '',
+        nova_group: '',
+        labels_en: usdaProduct.packageWeight || ''
+    };
+}
+
+function normalizeSpoonacularProduct(spoonProduct) {
+    return {
+        code: spoonProduct.id?.toString() || 'SPOON-' + Date.now(),
+        product_name_en: spoonProduct.title || 'Unknown Spoonacular Product',
+        brands: spoonProduct.brand || 'Spoonacular Database',
+        categories_en: spoonProduct.productType || 'Food',
+        ingredients_text_en: spoonProduct.ingredients?.join(', ') || '',
+        ingredients_tags: spoonProduct.ingredients || [],
+        source: 'Spoonacular',
+        nutrition_grades: spoonProduct.spoonacularScore ? (spoonProduct.spoonacularScore > 70 ? 'a' : 'c') : '',
+        nova_group: '',
+        labels_en: spoonProduct.badges?.join(', ') || ''
+    };
+}
+
+function normalizeWalmartProduct(walmartProduct) {
+    return {
+        code: walmartProduct.upc || walmartProduct.itemId?.toString() || 'WALMART-' + Date.now(),
+        product_name_en: walmartProduct.name || 'Unknown Walmart Product',
+        brands: walmartProduct.brandName || 'Walmart',
+        categories_en: walmartProduct.categoryPath || walmartProduct.categoryNode || 'Retail Product',
+        ingredients_text_en: '', // Walmart API doesn't typically include ingredients
+        ingredients_tags: [],
+        source: 'Walmart',
+        nutrition_grades: '',
+        nova_group: '',
+        labels_en: walmartProduct.shortDescription || ''
+    };
+}
+
+function normalizeUPCProduct(upcProduct) {
+    return {
+        code: upcProduct.upc || upcProduct.ean || 'UPC-' + Date.now(),
+        product_name_en: upcProduct.title || 'Unknown UPC Product',
+        brands: upcProduct.brand || 'UPC Database',
+        categories_en: upcProduct.category || 'Consumer Product',
+        ingredients_text_en: upcProduct.ingredients || '',
+        ingredients_tags: upcProduct.ingredients ? upcProduct.ingredients.split(',').map(i => i.trim()) : [],
+        source: 'UPC Database',
+        nutrition_grades: '',
+        nova_group: '',
+        labels_en: upcProduct.description || ''
+    };
+}
+
+// === Multi-API Search Function ===
+
+async function searchAllAPIs(name) {
+    console.log(`Starting comprehensive search for: "${name}"`);
+    
+    const searchPromises = [
+        searchOpenFoodFacts(name, 15).catch(e => { console.warn('OpenFoodFacts failed:', e); return []; }),
+        searchUSDAFoodData(name).catch(e => { console.warn('USDA failed:', e); return []; }),
+        searchSpoonacularFood(name).catch(e => { console.warn('Spoonacular failed:', e); return []; }),
+        searchWalmartProducts(name).catch(e => { console.warn('Walmart failed:', e); return []; }),
+        searchUPCDatabase(name).catch(e => { console.warn('UPC Database failed:', e); return []; })
+    ];
+    
+    const [
+        openFoodFactsResults,
+        usdaResults,
+        spoonacularResults,
+        walmartResults,
+        upcResults
+    ] = await Promise.all(searchPromises);
+    
+    let allProducts = [];
+    
+    // Add OpenFoodFacts results (already normalized)
+    allProducts = allProducts.concat(openFoodFactsResults.map(p => ({ ...p, source: 'OpenFoodFacts' })));
+    
+    // Add and normalize other API results
+    allProducts = allProducts.concat(usdaResults.map(normalizeUSDAProduct));
+    allProducts = allProducts.concat(spoonacularResults.map(normalizeSpoonacularProduct));
+    allProducts = allProducts.concat(walmartResults.map(normalizeWalmartProduct));
+    allProducts = allProducts.concat(upcResults.map(normalizeUPCProduct));
+    
+    // Remove duplicates based on product name and barcode
+    const uniqueProducts = [];
+    const seen = new Set();
+    
+    for (const product of allProducts) {
+        const key = `${product.code}-${product.product_name_en}`.toLowerCase();
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniqueProducts.push(product);
+        }
+    }
+    
+    console.log(`Found ${allProducts.length} total products, ${uniqueProducts.length} unique products from all sources`);
+    console.log(`Sources: OpenFoodFacts: ${openFoodFactsResults.length}, USDA: ${usdaResults.length}, Spoonacular: ${spoonacularResults.length}, Walmart: ${walmartResults.length}, UPC: ${upcResults.length}`);
+    
+    return uniqueProducts.slice(0, 20); // Return top 20 unique products
 }

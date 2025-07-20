@@ -80,6 +80,30 @@
         }
         .hidden { display: none; }
         .margin-top { margin-top: 30px; }
+        .info-box {
+            background: #e8f4fd; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin-bottom: 25px; 
+            border-left: 4px solid #007cba;
+        }
+        .info-title {
+            margin-top: 0; 
+            color: #005a87;
+        }
+        .info-desc {
+            margin-bottom: 10px; 
+            color: #333;
+        }
+        .info-list {
+            color: #555; 
+            margin-bottom: 5px;
+        }
+        .info-note {
+            color: #666; 
+            font-size: 14px; 
+            margin-bottom: 0;
+        }
         /* Modal styles */
         #ingredient-modal { 
             display:none; 
@@ -114,7 +138,20 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔍 Product & Ingredient Aggregator</h1>
+        <h1>🔍 Product & Ingredient Aggregator</h1>            <div class="info-box">
+                <h3 class="info-title">📊 Multi-Source Data Collection</h3>
+                <p class="info-desc">This tool searches across multiple databases to provide comprehensive product and ingredient information:</p>
+                <ul class="info-list">
+                    <li><strong>OpenFoodFacts:</strong> Global food products database with detailed ingredient lists</li>
+                    <li><strong>USDA FoodData Central:</strong> Official US nutrition and food composition data</li>
+                    <li><strong>Spoonacular API:</strong> Recipe and food product database</li>
+                    <li><strong>UPC Database:</strong> Universal product codes and retail product information</li>
+                    <li><strong>Walmart API:</strong> Retail product catalog</li>
+                    <li><strong>PubChem:</strong> Chemical compound information for ingredients</li>
+                </ul>
+                <p class="info-note"><em>Results are deduplicated and filtered for English products only.</em></p>
+            </div>
+
         <form id="search-form">
             <div class="form-group">
                 <label for="product_name">Product Name:</label>
