@@ -8,26 +8,36 @@ async function queryOpenFoodFactsByBarcode(barcode) {
     return {};
 }
 
-async function searchOpenFoodFacts(name) {
+async function searchOpenFoodFacts(name, limit = 10) {
     const params = new URLSearchParams({
         search_terms: name,
         search_simple: 1,
         action: 'process',
-        json: 1
+        json: 1,
+        page_size: limit
     });
     const resp = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`);
     if (resp.ok) {
         const data = await resp.json();
         console.log('Raw search data:', data);
         if (data.products && data.products.length > 0) {
-            const product = data.products[0];
-            console.log('Selected product from search:', product);
-            // Get full product details by barcode
-            if (product.code) {
-                return await queryOpenFoodFactsByBarcode(product.code);
-            }
-            return product;
+            console.log(`Found ${data.products.length} products for search term "${name}"`);
+            return data.products;
         }
+    }
+    return [];
+}
+
+async function searchOpenFoodFactsSingle(name) {
+    const products = await searchOpenFoodFacts(name, 1);
+    if (products.length > 0) {
+        const product = products[0];
+        console.log('Selected product from search:', product);
+        // Get full product details by barcode
+        if (product.code) {
+            return await queryOpenFoodFactsByBarcode(product.code);
+        }
+        return product;
     }
     return {};
 }
@@ -85,9 +95,9 @@ async function queryPubChem(ingredient) {
     return {};
 }
 
-function buildJson(productData, ingredientsDetails) {
-    console.log('Building JSON with product data:', productData);
-    console.log('Ingredients details:', ingredientsDetails);
+function buildJson(products, ingredientsMap) {
+    console.log('Building JSON with products:', products.length, 'products');
+    console.log('Ingredients map:', ingredientsMap);
 
     const result = {
         data_source: 'Product Database Import',
@@ -98,46 +108,60 @@ function buildJson(productData, ingredientsDetails) {
         health_effects: []
     };
 
-    const productEntry = {
-        barcode: productData.code || productData._id || productData.id || 'N/A',
-        name: productData.product_name || productData.product_name_en || 'Unknown Product',
-        brand: productData.brands || 'Unknown Brand',
-        category: productData.categories || 'Unknown Category',
-        description: productData.generic_name || productData.generic_name_en || '',
-        status: 'active',
-        is_dummy: false,
-        sources: ['OpenFoodFacts'],
-        regulatory_claims: productData.labels || '',
-        active_ingredients: ingredientsDetails.map(ing => ({ name: ing.name, function: '', sources: ['OpenFoodFacts'] })),
-        inactive_ingredients: [],
-        // Add debugging info
-        debug_info: {
-            raw_ingredients_text: productData.ingredients_text || '',
-            raw_ingredients_tags: productData.ingredients_tags || [],
-            nutrition_grades: productData.nutrition_grades || '',
-            nova_group: productData.nova_group || ''
-        }
-    };
+    const allIngredients = new Map(); // To avoid duplicate ingredients
 
-    for (const ing of ingredientsDetails) {
-        const ingredientItem = {
-            name: ing.name,
-            scientific_name: '',
-            cas_number: '',
-            category: '',
-            safety_rating: 'unknown',
-            description: '',
+    // Process each product
+    for (let i = 0; i < products.length; i++) {
+        const productData = products[i];
+        const ingredientsDetails = ingredientsMap[i] || [];
+
+        const productEntry = {
+            barcode: productData.code || productData._id || productData.id || 'N/A',
+            name: productData.product_name || productData.product_name_en || 'Unknown Product',
+            brand: productData.brands || 'Unknown Brand',
+            category: productData.categories || 'Unknown Category',
+            description: productData.generic_name || productData.generic_name_en || '',
+            status: 'active',
+            is_dummy: false,
             sources: ['OpenFoodFacts'],
-            health_effects: []
+            regulatory_claims: productData.labels || '',
+            active_ingredients: ingredientsDetails.map(ing => ({ name: ing.name, function: '', sources: ['OpenFoodFacts'] })),
+            inactive_ingredients: [],
+            // Add debugging info
+            debug_info: {
+                raw_ingredients_text: productData.ingredients_text || '',
+                raw_ingredients_tags: productData.ingredients_tags || [],
+                nutrition_grades: productData.nutrition_grades || '',
+                nova_group: productData.nova_group || ''
+            }
         };
-        if (ing.pubchem && ing.pubchem.cid) {
-            ingredientItem.pubchem_cid = ing.pubchem.cid;
-            ingredientItem.sources.push('PubChem');
+
+        // Add ingredients to the global ingredients list (avoid duplicates)
+        for (const ing of ingredientsDetails) {
+            if (!allIngredients.has(ing.name)) {
+                const ingredientItem = {
+                    name: ing.name,
+                    scientific_name: '',
+                    cas_number: '',
+                    category: '',
+                    safety_rating: 'unknown',
+                    description: '',
+                    sources: ['OpenFoodFacts'],
+                    health_effects: []
+                };
+                if (ing.pubchem && ing.pubchem.cid) {
+                    ingredientItem.pubchem_cid = ing.pubchem.cid;
+                    ingredientItem.sources.push('PubChem');
+                }
+                allIngredients.set(ing.name, ingredientItem);
+            }
         }
-        result.ingredients.push(ingredientItem);
+
+        result.products.push(productEntry);
     }
 
-    result.products.push(productEntry);
+    // Add all unique ingredients to the result
+    result.ingredients = Array.from(allIngredients.values());
     return result;
 }
 
@@ -166,50 +190,102 @@ async function handleForm(event) {
             throw new Error('Please enter either a product name or barcode');
         }
         
-        let product = {};
+        let products = [];
         
         if (barcode) {
-            product = await queryOpenFoodFactsByBarcode(barcode);
+            // Single barcode search
+            const product = await queryOpenFoodFactsByBarcode(barcode);
+            if (product && Object.keys(product).length > 0) {
+                products = [product];
+            }
         } else if (name) {
-            const searchResult = await searchOpenFoodFacts(name);
-            if (searchResult && searchResult.id) {
-                product = await queryOpenFoodFactsByBarcode(searchResult.id);
+            // Multiple product search
+            const searchResults = await searchOpenFoodFacts(name, 10);
+            console.log(`Search for "${name}" returned ${searchResults.length} products`);
+            
+            // Get full details for each product
+            for (const searchResult of searchResults) {
+                if (searchResult.code) {
+                    try {
+                        const fullProduct = await queryOpenFoodFactsByBarcode(searchResult.code);
+                        if (fullProduct && Object.keys(fullProduct).length > 0) {
+                            products.push(fullProduct);
+                        }
+                    } catch (e) {
+                        console.warn(`Failed to get details for product ${searchResult.code}:`, e);
+                        // Use search result as fallback
+                        products.push(searchResult);
+                    }
+                } else {
+                    // Use search result as is
+                    products.push(searchResult);
+                }
             }
         }
         
-        if (!product || Object.keys(product).length === 0) {
-            throw new Error('No product found. Please try a different search term or barcode.');
+        if (!products || products.length === 0) {
+            throw new Error('No products found. Please try a different search term or barcode.');
         }
 
-        console.log('Final product data received:', product);
+        console.log(`Processing ${products.length} products`);
         
-        // Extract ingredients using improved logic
-        const ingredientNames = extractIngredients(product);
-        const ingredients = [];
-        
-        for (const ingName of ingredientNames) {
-            const detail = { name: ingName };
-            try {
-                const pubchem = await queryPubChem(ingName);
-                if (Object.keys(pubchem).length) detail.pubchem = pubchem;
-            } catch (e) {
-                console.warn(`Could not fetch PubChem data for ${ingName}:`, e);
+        // Extract ingredients for all products
+        const ingredientsMap = {};
+        for (let i = 0; i < products.length; i++) {
+            const product = products[i];
+            console.log(`Processing product ${i + 1}:`, product.product_name || product.product_name_en || 'Unknown');
+            
+            const ingredientNames = extractIngredients(product);
+            const ingredients = [];
+            
+            for (const ingName of ingredientNames) {
+                const detail = { name: ingName };
+                try {
+                    const pubchem = await queryPubChem(ingName);
+                    if (Object.keys(pubchem).length) detail.pubchem = pubchem;
+                } catch (e) {
+                    console.warn(`Could not fetch PubChem data for ${ingName}:`, e);
+                }
+                ingredients.push(detail);
             }
-            ingredients.push(detail);
+            
+            ingredientsMap[i] = ingredients;
         }
         
-        const data = buildJson(product, ingredients);
+        const data = buildJson(products, ingredientsMap);
         loading.classList.add('hidden');
         
-        // Display results with clickable ingredients
-        const ingredientsHtml = renderIngredientsClickable(product, ingredients);
-        results.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre><div>Ingredients: ${ingredientsHtml}</div>`;
+        // Display results with clickable ingredients for each product
+        let resultsHtml = `<div style="margin-bottom: 20px;"><strong>Found ${products.length} product(s):</strong></div>`;
+        
+        for (let i = 0; i < products.length; i++) {
+            const product = products[i];
+            const ingredients = ingredientsMap[i] || [];
+            const productName = product.product_name || product.product_name_en || 'Unknown Product';
+            const brand = product.brands || 'Unknown Brand';
+            
+            const ingredientsHtml = renderIngredientsClickable(product, ingredients);
+            
+            resultsHtml += `
+                <div style="margin-bottom: 25px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #fafafa;">
+                    <h4 style="margin: 0 0 10px 0; color: #333;">${productName}</h4>
+                    <p style="margin: 5px 0; color: #666;"><strong>Brand:</strong> ${brand}</p>
+                    <p style="margin: 5px 0; color: #666;"><strong>Barcode:</strong> ${product.code || 'N/A'}</p>
+                    <p style="margin: 10px 0 5px 0; color: #333;"><strong>Ingredients:</strong></p>
+                    <div style="margin-left: 10px;">${ingredientsHtml || 'No ingredients found'}</div>
+                </div>
+            `;
+        }
+        
+        resultsHtml += `<div style="margin-top: 30px;"><strong>Full JSON Data:</strong><pre style="background:#f8f8f8; padding:10px; border-radius:5px; margin-top: 10px;">${JSON.stringify(data, null, 2)}</pre></div>`;
+        
+        results.innerHTML = resultsHtml;
         
         // Create download link
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         download.href = url;
-        download.download = `product_${product.id || 'data'}_${new Date().toISOString().split('T')[0]}.json`;
+        download.download = `products_${name || barcode}_${new Date().toISOString().split('T')[0]}.json`;
         download.classList.remove('hidden');
         
     } catch (err) {
@@ -280,10 +356,7 @@ async function handleBatchForm(event) {
         if (/^\d+$/.test(entry)) {
             product = await queryOpenFoodFactsByBarcode(entry);
         } else {
-            const searchResult = await searchOpenFoodFacts(entry);
-            if (searchResult && searchResult.id) {
-                product = await queryOpenFoodFactsByBarcode(searchResult.id);
-            }
+            product = await searchOpenFoodFactsSingle(entry);
         }
         if (product && Object.keys(product).length > 0) {
             // Extract ingredients using improved logic
@@ -299,7 +372,7 @@ async function handleBatchForm(event) {
                 ingredients.push(detail);
             }
             
-            const data = buildJson(product, ingredients);
+            const data = buildJson([product], [ingredients]);
             allResults.push({ entry, data });
         } else {
             allResults.push({ entry, error: 'No product found.' });
