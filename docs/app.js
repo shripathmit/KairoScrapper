@@ -2,6 +2,7 @@ async function queryOpenFoodFactsByBarcode(barcode) {
     const resp = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
     if (resp.ok) {
         const data = await resp.json();
+        console.log('Raw barcode product data:', data.product);
         return data.product || {};
     }
     return {};
@@ -17,15 +18,63 @@ async function searchOpenFoodFacts(name) {
     const resp = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`);
     if (resp.ok) {
         const data = await resp.json();
+        console.log('Raw search data:', data);
         if (data.products && data.products.length > 0) {
-            return data.products[0];
+            const product = data.products[0];
+            console.log('Selected product from search:', product);
+            // Get full product details by barcode
+            if (product.code) {
+                return await queryOpenFoodFactsByBarcode(product.code);
+            }
+            return product;
         }
     }
     return {};
 }
 
+function extractIngredients(product) {
+    console.log('Extracting ingredients from product:', {
+        ingredients_text: product.ingredients_text,
+        ingredients: product.ingredients,
+        ingredients_tags: product.ingredients_tags,
+        ingredients_text_en: product.ingredients_text_en,
+        ingredients_text_fr: product.ingredients_text_fr
+    });
+
+    let ingredients = [];
+    
+    // Try multiple sources for ingredients
+    if (product.ingredients_text || product.ingredients_text_en || product.ingredients_text_fr) {
+        const ingredientText = product.ingredients_text || product.ingredients_text_en || product.ingredients_text_fr || '';
+        // Split by common separators and clean up
+        ingredients = ingredientText
+            .split(/[,;.\n]/)
+            .map(ing => ing.trim().replace(/^\d+\.?\s*/, '').replace(/\([^)]*\)/g, '').trim())
+            .filter(ing => ing.length > 2 && !ing.match(/^\d+%?$/));
+    } else if (product.ingredients && Array.isArray(product.ingredients)) {
+        // Use ingredients array if available
+        ingredients = product.ingredients
+            .map(ing => {
+                if (typeof ing === 'string') return ing;
+                return ing.text || ing.id || ing.name || String(ing);
+            })
+            .filter(ing => ing && ing.length > 2);
+    } else if (product.ingredients_tags && Array.isArray(product.ingredients_tags)) {
+        // Use ingredients tags as fallback
+        ingredients = product.ingredients_tags
+            .map(tag => {
+                if (typeof tag !== 'string') return '';
+                return tag.replace(/^en:/, '').replace(/^fr:/, '').replace(/-/g, ' ').replace(/_/g, ' ');
+            })
+            .filter(ing => ing.length > 2);
+    }
+    
+    console.log('Extracted ingredients:', ingredients);
+    return ingredients.slice(0, 20); // Limit to first 20 ingredients
+}
+
 async function queryPubChem(ingredient) {
-    const resp = await fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${ingredient}/JSON`);
+    const resp = await fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(ingredient)}/JSON`);
     if (resp.ok) {
         const data = await resp.json();
         try {
@@ -37,6 +86,9 @@ async function queryPubChem(ingredient) {
 }
 
 function buildJson(productData, ingredientsDetails) {
+    console.log('Building JSON with product data:', productData);
+    console.log('Ingredients details:', ingredientsDetails);
+
     const result = {
         data_source: 'Product Database Import',
         import_date: new Date().toISOString().split('T')[0],
@@ -47,27 +99,27 @@ function buildJson(productData, ingredientsDetails) {
     };
 
     const productEntry = {
-        barcode: productData.id || '',
-        name: productData.product_name || '',
-        brand: productData.brands || '',
-        category: productData.categories || '',
-        description: productData.generic_name || '',
+        barcode: productData.code || productData._id || productData.id || 'N/A',
+        name: productData.product_name || productData.product_name_en || 'Unknown Product',
+        brand: productData.brands || 'Unknown Brand',
+        category: productData.categories || 'Unknown Category',
+        description: productData.generic_name || productData.generic_name_en || '',
         status: 'active',
         is_dummy: false,
         sources: ['OpenFoodFacts'],
-        regulatory_claims: '',
-        active_ingredients: [],
-        inactive_ingredients: []
+        regulatory_claims: productData.labels || '',
+        active_ingredients: ingredientsDetails.map(ing => ({ name: ing.name, function: '', sources: ['OpenFoodFacts'] })),
+        inactive_ingredients: [],
+        // Add debugging info
+        debug_info: {
+            raw_ingredients_text: productData.ingredients_text || '',
+            raw_ingredients_tags: productData.ingredients_tags || [],
+            nutrition_grades: productData.nutrition_grades || '',
+            nova_group: productData.nova_group || ''
+        }
     };
 
     for (const ing of ingredientsDetails) {
-        const ingEntry = {
-            name: ing.name,
-            function: '',
-            sources: ['OpenFoodFacts']
-        };
-        productEntry.inactive_ingredients.push(ingEntry);
-
         const ingredientItem = {
             name: ing.name,
             scientific_name: '',
@@ -78,8 +130,9 @@ function buildJson(productData, ingredientsDetails) {
             sources: ['OpenFoodFacts'],
             health_effects: []
         };
-        if (ing.pubchem) {
-            ingredientItem.sources.push(ing.pubchem.source);
+        if (ing.pubchem && ing.pubchem.cid) {
+            ingredientItem.pubchem_cid = ing.pubchem.cid;
+            ingredientItem.sources.push('PubChem');
         }
         result.ingredients.push(ingredientItem);
     }
@@ -127,10 +180,14 @@ async function handleForm(event) {
         if (!product || Object.keys(product).length === 0) {
             throw new Error('No product found. Please try a different search term or barcode.');
         }
+
+        console.log('Final product data received:', product);
         
+        // Extract ingredients using improved logic
+        const ingredientNames = extractIngredients(product);
         const ingredients = [];
-        for (const ing of product.ingredients || []) {
-            const ingName = ing.text;
+        
+        for (const ingName of ingredientNames) {
             const detail = { name: ingName };
             try {
                 const pubchem = await queryPubChem(ingName);
@@ -229,9 +286,11 @@ async function handleBatchForm(event) {
             }
         }
         if (product && Object.keys(product).length > 0) {
+            // Extract ingredients using improved logic
+            const ingredientNames = extractIngredients(product);
             const ingredients = [];
-            for (const ing of product.ingredients || []) {
-                const ingName = ing.text;
+            
+            for (const ingName of ingredientNames) {
                 const detail = { name: ingName };
                 try {
                     const pubchem = await queryPubChem(ingName);
@@ -239,6 +298,7 @@ async function handleBatchForm(event) {
                 } catch (e) {}
                 ingredients.push(detail);
             }
+            
             const data = buildJson(product, ingredients);
             allResults.push({ entry, data });
         } else {
