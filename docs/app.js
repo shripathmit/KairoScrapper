@@ -8,7 +8,27 @@ async function queryOpenFoodFactsByBarcode(barcode) {
     return {};
 }
 
-async function searchOpenFoodFacts(name, limit = 10) {
+function isEnglishProduct(product) {
+    // Check if product has English name or description
+    const englishName = product.product_name_en || product.product_name;
+    const englishGeneric = product.generic_name_en || product.generic_name;
+    
+    // Must have at least an English product name
+    if (!englishName || englishName.trim().length === 0) {
+        return false;
+    }
+    
+    // Check if the name contains mostly Latin characters (English-like)
+    const latinRegex = /^[a-zA-Z0-9\s\-.,&'()%]+$/;
+    const nameIsLatin = latinRegex.test(englishName);
+    
+    // Also check if it's not just numbers or very short
+    const hasValidName = englishName.length >= 3 && !/^\d+$/.test(englishName.trim());
+    
+    return nameIsLatin && hasValidName;
+}
+
+async function searchOpenFoodFacts(name, limit = 20) {
     const params = new URLSearchParams({
         search_terms: name,
         search_simple: 1,
@@ -21,8 +41,17 @@ async function searchOpenFoodFacts(name, limit = 10) {
         const data = await resp.json();
         console.log('Raw search data:', data);
         if (data.products && data.products.length > 0) {
-            console.log(`Found ${data.products.length} products for search term "${name}"`);
-            return data.products;
+            // Filter for English products
+            const englishProducts = data.products.filter(product => {
+                const isEnglish = isEnglishProduct(product);
+                if (!isEnglish) {
+                    console.log(`Filtering out non-English product: ${product.product_name || product.product_name_en || 'Unknown'}`);
+                }
+                return isEnglish;
+            });
+            
+            console.log(`Found ${data.products.length} total products, ${englishProducts.length} English products for search term "${name}"`);
+            return englishProducts.slice(0, 10); // Limit to 10 English products
         }
     }
     return [];
@@ -44,18 +73,19 @@ async function searchOpenFoodFactsSingle(name) {
 
 function extractIngredients(product) {
     console.log('Extracting ingredients from product:', {
+        ingredients_text_en: product.ingredients_text_en,
         ingredients_text: product.ingredients_text,
         ingredients: product.ingredients,
         ingredients_tags: product.ingredients_tags,
-        ingredients_text_en: product.ingredients_text_en,
         ingredients_text_fr: product.ingredients_text_fr
     });
 
     let ingredients = [];
     
-    // Try multiple sources for ingredients
-    if (product.ingredients_text || product.ingredients_text_en || product.ingredients_text_fr) {
-        const ingredientText = product.ingredients_text || product.ingredients_text_en || product.ingredients_text_fr || '';
+    // Try multiple sources for ingredients, prioritizing English
+    if (product.ingredients_text_en || product.ingredients_text || product.ingredients_text_fr) {
+        // Prioritize English ingredients text
+        const ingredientText = product.ingredients_text_en || product.ingredients_text || product.ingredients_text_fr || '';
         // Split by common separators and clean up
         ingredients = ingredientText
             .split(/[,;.\n]/)
@@ -117,19 +147,19 @@ function buildJson(products, ingredientsMap) {
 
         const productEntry = {
             barcode: productData.code || productData._id || productData.id || 'N/A',
-            name: productData.product_name || productData.product_name_en || 'Unknown Product',
+            name: productData.product_name_en || productData.product_name || 'Unknown Product',
             brand: productData.brands || 'Unknown Brand',
-            category: productData.categories || 'Unknown Category',
-            description: productData.generic_name || productData.generic_name_en || '',
+            category: productData.categories_en || productData.categories || 'Unknown Category',
+            description: productData.generic_name_en || productData.generic_name || '',
             status: 'active',
             is_dummy: false,
             sources: ['OpenFoodFacts'],
-            regulatory_claims: productData.labels || '',
+            regulatory_claims: productData.labels_en || productData.labels || '',
             active_ingredients: ingredientsDetails.map(ing => ({ name: ing.name, function: '', sources: ['OpenFoodFacts'] })),
             inactive_ingredients: [],
             // Add debugging info
             debug_info: {
-                raw_ingredients_text: productData.ingredients_text || '',
+                raw_ingredients_text: productData.ingredients_text_en || productData.ingredients_text || '',
                 raw_ingredients_tags: productData.ingredients_tags || [],
                 nutrition_grades: productData.nutrition_grades || '',
                 nova_group: productData.nova_group || ''
@@ -233,7 +263,7 @@ async function handleForm(event) {
         const ingredientsMap = {};
         for (let i = 0; i < products.length; i++) {
             const product = products[i];
-            console.log(`Processing product ${i + 1}:`, product.product_name || product.product_name_en || 'Unknown');
+            console.log(`Processing product ${i + 1}:`, product.product_name_en || product.product_name || 'Unknown');
             
             const ingredientNames = extractIngredients(product);
             const ingredients = [];
@@ -261,7 +291,7 @@ async function handleForm(event) {
         for (let i = 0; i < products.length; i++) {
             const product = products[i];
             const ingredients = ingredientsMap[i] || [];
-            const productName = product.product_name || product.product_name_en || 'Unknown Product';
+            const productName = product.product_name_en || product.product_name || 'Unknown Product';
             const brand = product.brands || 'Unknown Brand';
             
             const ingredientsHtml = renderIngredientsClickable(product, ingredients);
