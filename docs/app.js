@@ -226,6 +226,118 @@ async function searchFoodSafetyDB(name) {
     return [];
 }
 
+// === Multi-API Search Function ===
+
+async function searchAllAPIs(name) {
+    console.log(`Starting comprehensive search for: "${name}"`);
+    
+    const searchPromises = [
+        searchOpenFoodFacts(name, 15).catch(e => { console.warn('OpenFoodFacts failed:', e); return []; }),
+        searchUSDAFoodData(name).catch(e => { console.warn('USDA failed:', e); return []; }),
+        searchSpoonacularFood(name).catch(e => { console.warn('Spoonacular failed:', e); return []; }),
+        searchWalmartProducts(name).catch(e => { console.warn('Walmart failed:', e); return []; }),
+        searchUPCDatabase(name).catch(e => { console.warn('UPC Database failed:', e); return []; })
+    ];
+    
+    const [
+        openFoodFactsResults,
+        usdaResults,
+        spoonacularResults,
+        walmartResults,
+        upcResults
+    ] = await Promise.all(searchPromises);
+    
+    let allProducts = [];
+    
+    // Add OpenFoodFacts results (already normalized)
+    allProducts = allProducts.concat(openFoodFactsResults.map(p => ({ ...p, source: 'OpenFoodFacts' })));
+    
+    // Add and normalize other API results
+    allProducts = allProducts.concat(usdaResults.map(normalizeUSDAProduct));
+    allProducts = allProducts.concat(spoonacularResults.map(normalizeSpoonacularProduct));
+    allProducts = allProducts.concat(walmartResults.map(normalizeWalmartProduct));
+    allProducts = allProducts.concat(upcResults.map(normalizeUPCProduct));
+    
+    // Remove duplicates based on product name and barcode
+    const uniqueProducts = [];
+    const seen = new Set();
+    
+    for (const product of allProducts) {
+        const key = `${product.code}-${product.product_name_en}`.toLowerCase();
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniqueProducts.push(product);
+        }
+    }
+    
+    console.log(`Found ${allProducts.length} total products, ${uniqueProducts.length} unique products from all sources`);
+    console.log(`Sources: OpenFoodFacts: ${openFoodFactsResults.length}, USDA: ${usdaResults.length}, Spoonacular: ${spoonacularResults.length}, Walmart: ${walmartResults.length}, UPC: ${upcResults.length}`);
+    
+    return uniqueProducts.slice(0, 20); // Return top 20 unique products
+}
+
+// === Data Normalization Functions ===
+
+function normalizeUSDAProduct(usdaProduct) {
+    return {
+        code: usdaProduct.fdcId?.toString() || 'USDA-' + Date.now(),
+        product_name_en: usdaProduct.description || usdaProduct.lowercaseDescription || 'Unknown USDA Product',
+        brands: usdaProduct.brandOwner || usdaProduct.brandName || 'USDA Database',
+        categories_en: usdaProduct.foodCategory || 'Food',
+        ingredients_text_en: usdaProduct.ingredients || '',
+        ingredients_tags: usdaProduct.foodNutrients?.map(n => n.nutrientName) || [],
+        source: 'USDA FoodData Central',
+        nutrition_grades: '',
+        nova_group: '',
+        labels_en: usdaProduct.packageWeight || ''
+    };
+}
+
+function normalizeSpoonacularProduct(spoonProduct) {
+    return {
+        code: spoonProduct.id?.toString() || 'SPOON-' + Date.now(),
+        product_name_en: spoonProduct.title || 'Unknown Spoonacular Product',
+        brands: spoonProduct.brand || 'Spoonacular Database',
+        categories_en: spoonProduct.productType || 'Food',
+        ingredients_text_en: spoonProduct.ingredients?.join(', ') || '',
+        ingredients_tags: spoonProduct.ingredients || [],
+        source: 'Spoonacular',
+        nutrition_grades: spoonProduct.spoonacularScore ? (spoonProduct.spoonacularScore > 70 ? 'a' : 'c') : '',
+        nova_group: '',
+        labels_en: spoonProduct.badges?.join(', ') || ''
+    };
+}
+
+function normalizeWalmartProduct(walmartProduct) {
+    return {
+        code: walmartProduct.upc || walmartProduct.itemId?.toString() || 'WALMART-' + Date.now(),
+        product_name_en: walmartProduct.name || 'Unknown Walmart Product',
+        brands: walmartProduct.brandName || 'Walmart',
+        categories_en: walmartProduct.categoryPath || walmartProduct.categoryNode || 'Retail Product',
+        ingredients_text_en: '', // Walmart API doesn't typically include ingredients
+        ingredients_tags: [],
+        source: 'Walmart',
+        nutrition_grades: '',
+        nova_group: '',
+        labels_en: walmartProduct.shortDescription || ''
+    };
+}
+
+function normalizeUPCProduct(upcProduct) {
+    return {
+        code: upcProduct.upc || upcProduct.ean || 'UPC-' + Date.now(),
+        product_name_en: upcProduct.title || 'Unknown UPC Product',
+        brands: upcProduct.brand || 'UPC Database',
+        categories_en: upcProduct.category || 'Consumer Product',
+        ingredients_text_en: upcProduct.ingredients || '',
+        ingredients_tags: upcProduct.ingredients ? upcProduct.ingredients.split(',').map(i => i.trim()) : [],
+        source: 'UPC Database',
+        nutrition_grades: '',
+        nova_group: '',
+        labels_en: upcProduct.description || ''
+    };
+}
+
 async function queryPubChem(ingredient) {
     const resp = await fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(ingredient)}/JSON`);
     if (resp.ok) {
@@ -551,114 +663,4 @@ function renderIngredientsClickable(product, ingredients) {
     ).join(', ');
 }
 
-// === Data Normalization Functions ===
-
-function normalizeUSDAProduct(usdaProduct) {
-    return {
-        code: usdaProduct.fdcId?.toString() || 'USDA-' + Date.now(),
-        product_name_en: usdaProduct.description || usdaProduct.lowercaseDescription || 'Unknown USDA Product',
-        brands: usdaProduct.brandOwner || usdaProduct.brandName || 'USDA Database',
-        categories_en: usdaProduct.foodCategory || 'Food',
-        ingredients_text_en: usdaProduct.ingredients || '',
-        ingredients_tags: usdaProduct.foodNutrients?.map(n => n.nutrientName) || [],
-        source: 'USDA FoodData Central',
-        nutrition_grades: '',
-        nova_group: '',
-        labels_en: usdaProduct.packageWeight || ''
-    };
-}
-
-function normalizeSpoonacularProduct(spoonProduct) {
-    return {
-        code: spoonProduct.id?.toString() || 'SPOON-' + Date.now(),
-        product_name_en: spoonProduct.title || 'Unknown Spoonacular Product',
-        brands: spoonProduct.brand || 'Spoonacular Database',
-        categories_en: spoonProduct.productType || 'Food',
-        ingredients_text_en: spoonProduct.ingredients?.join(', ') || '',
-        ingredients_tags: spoonProduct.ingredients || [],
-        source: 'Spoonacular',
-        nutrition_grades: spoonProduct.spoonacularScore ? (spoonProduct.spoonacularScore > 70 ? 'a' : 'c') : '',
-        nova_group: '',
-        labels_en: spoonProduct.badges?.join(', ') || ''
-    };
-}
-
-function normalizeWalmartProduct(walmartProduct) {
-    return {
-        code: walmartProduct.upc || walmartProduct.itemId?.toString() || 'WALMART-' + Date.now(),
-        product_name_en: walmartProduct.name || 'Unknown Walmart Product',
-        brands: walmartProduct.brandName || 'Walmart',
-        categories_en: walmartProduct.categoryPath || walmartProduct.categoryNode || 'Retail Product',
-        ingredients_text_en: '', // Walmart API doesn't typically include ingredients
-        ingredients_tags: [],
-        source: 'Walmart',
-        nutrition_grades: '',
-        nova_group: '',
-        labels_en: walmartProduct.shortDescription || ''
-    };
-}
-
-function normalizeUPCProduct(upcProduct) {
-    return {
-        code: upcProduct.upc || upcProduct.ean || 'UPC-' + Date.now(),
-        product_name_en: upcProduct.title || 'Unknown UPC Product',
-        brands: upcProduct.brand || 'UPC Database',
-        categories_en: upcProduct.category || 'Consumer Product',
-        ingredients_text_en: upcProduct.ingredients || '',
-        ingredients_tags: upcProduct.ingredients ? upcProduct.ingredients.split(',').map(i => i.trim()) : [],
-        source: 'UPC Database',
-        nutrition_grades: '',
-        nova_group: '',
-        labels_en: upcProduct.description || ''
-    };
-}
-
-// === Multi-API Search Function ===
-
-async function searchAllAPIs(name) {
-    console.log(`Starting comprehensive search for: "${name}"`);
-    
-    const searchPromises = [
-        searchOpenFoodFacts(name, 15).catch(e => { console.warn('OpenFoodFacts failed:', e); return []; }),
-        searchUSDAFoodData(name).catch(e => { console.warn('USDA failed:', e); return []; }),
-        searchSpoonacularFood(name).catch(e => { console.warn('Spoonacular failed:', e); return []; }),
-        searchWalmartProducts(name).catch(e => { console.warn('Walmart failed:', e); return []; }),
-        searchUPCDatabase(name).catch(e => { console.warn('UPC Database failed:', e); return []; })
-    ];
-    
-    const [
-        openFoodFactsResults,
-        usdaResults,
-        spoonacularResults,
-        walmartResults,
-        upcResults
-    ] = await Promise.all(searchPromises);
-    
-    let allProducts = [];
-    
-    // Add OpenFoodFacts results (already normalized)
-    allProducts = allProducts.concat(openFoodFactsResults.map(p => ({ ...p, source: 'OpenFoodFacts' })));
-    
-    // Add and normalize other API results
-    allProducts = allProducts.concat(usdaResults.map(normalizeUSDAProduct));
-    allProducts = allProducts.concat(spoonacularResults.map(normalizeSpoonacularProduct));
-    allProducts = allProducts.concat(walmartResults.map(normalizeWalmartProduct));
-    allProducts = allProducts.concat(upcResults.map(normalizeUPCProduct));
-    
-    // Remove duplicates based on product name and barcode
-    const uniqueProducts = [];
-    const seen = new Set();
-    
-    for (const product of allProducts) {
-        const key = `${product.code}-${product.product_name_en}`.toLowerCase();
-        if (!seen.has(key)) {
-            seen.add(key);
-            uniqueProducts.push(product);
-        }
-    }
-    
-    console.log(`Found ${allProducts.length} total products, ${uniqueProducts.length} unique products from all sources`);
-    console.log(`Sources: OpenFoodFacts: ${openFoodFactsResults.length}, USDA: ${usdaResults.length}, Spoonacular: ${spoonacularResults.length}, Walmart: ${walmartResults.length}, UPC: ${upcResults.length}`);
-    
-    return uniqueProducts.slice(0, 20); // Return top 20 unique products
-}
+// ...existing code...
