@@ -186,19 +186,7 @@ function showIngredientModal(ingredientName) {
         modalContent.innerHTML = '<p>Error fetching PubChem data.</p>';
     });
 }
-    queryPubChem(ingredientName).then(data => {
-        if (data.cid) {
-            modalContent.innerHTML = `
-                <p><strong>PubChem CID:</strong> ${data.cid}</p>
-                <p><a href="https://pubchem.ncbi.nlm.nih.gov/compound/${data.cid}" target="_blank">View on PubChem</a></p>
-            `;
-        } else {
-            modalContent.innerHTML = '<p>No PubChem data found.</p>';
-        }
-    }).catch(() => {
-        modalContent.innerHTML = '<p>Error fetching PubChem data.</p>';
-    });
-}
+
 document.getElementById('close-modal').onclick = function() {
     document.getElementById('ingredient-modal').style.display = 'none';
 };
